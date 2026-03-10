@@ -5,6 +5,7 @@
 #include<sys/types.h>
 #include<sys/stat.h>
 #include<unistd.h>
+#include<sys/time.h>
 const std::string temp_path = "./temp/"; 
 
 namespace ns_util
@@ -22,6 +23,7 @@ namespace ns_util
                 return path_name;
             }
             // 传入的为文件名，没有任何后缀
+            // 编译时 使用的文件
             static std::string Src(const std::string &file_name)
             {
                 return AddSuffix(file_name,".cpp");
@@ -30,10 +32,26 @@ namespace ns_util
             {
                 return AddSuffix(file_name,".exe");
             }
+
+            static std::string CompilerError(const std::string &file_name)
+            {
+                return AddSuffix(file_name,".compile_error");
+            }
+            //  运行时 使用的文件
+            static std::string Stdin(const std::string &file_name)
+            {
+                return AddSuffix(file_name,".stdin");
+            }
+            static std::string Stdout(const std::string &file_name)
+            {
+                return AddSuffix(file_name,".stdout");
+
+            }
             static std::string Stderr(const std::string &file_name)
             {
                 return AddSuffix(file_name,".stderr");
             }
+            
     };
 
     class FileUtil
@@ -48,5 +66,23 @@ namespace ns_util
               }
               return false;
            }
+           static std::string  UniqFileName()
+           {
+
+           }
+           static bool WriteFile(const std::string& target,const std::string &code)
+           {
+              
+           }
+    };
+    class TimeUtil
+    {
+        public:
+            static std::string GetTimeStamp()
+            {
+                struct timeval _time;
+                gettimeofday(&_time,NULL);
+                return std::to_string(_time.tv_sec);
+            }
     };
 };
