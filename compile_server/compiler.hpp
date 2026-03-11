@@ -18,6 +18,7 @@ namespace ns_compiler
         Compiler(){}
         ~Compiler(){}
         // 编译成功 返回true 失败 false     传入编译的文件名
+        
         static bool Compile(const std::string& file_name)
         {
             pid_t pid = fork();
