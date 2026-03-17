@@ -4,6 +4,7 @@
 #include <jsoncpp/json/json.h>
 #include "../comm/log.hpp"
 #include "../comm/util.hpp"
+#include <unistd.h>
 namespace ns_compile_and_run
 {
     using namespace ns_log;
@@ -17,6 +18,43 @@ namespace ns_compile_and_run
         // code > 0 : 收到信号导致异常崩溃
         // code < 0 ：整个过程非运行报错  代码为空，编译报错等
 
+        static void RemoveTempFile(const std::string &file_name)
+        {
+            //清理文件的个数是不确定的
+            std::string _src = PathUtil::Src(file_name);
+            if (FileUtil::IsFileExists(_src))
+            {
+                unlink(_src.c_str());
+            }
+            std::string _complier_error = PathUtil::CompilerError(file_name);
+            if (FileUtil::IsFileExists(_complier_error))
+            {
+                unlink(_complier_error.c_str());
+            }
+
+            std::string _exe = PathUtil::Exe(file_name);
+            if (FileUtil::IsFileExists(_exe))
+            {
+                unlink(_exe.c_str());
+            }
+            std::string _stdin = PathUtil::Stdin(file_name);
+            if (FileUtil::IsFileExists(_stdin))
+            {
+                unlink(_stdin.c_str());
+            }
+            std::string _stdout = PathUtil::Stdout(file_name);
+            if (FileUtil::IsFileExists(_stdout))
+            {
+                unlink(_stdout.c_str());
+            }
+            std::string _stderr = PathUtil::Stderr(file_name);
+            if (FileUtil::IsFileExists(_stderr))
+            {
+                unlink(_stderr.c_str());
+            }
+            
+        }
+        
         static std::string CodeToDesc(int code, const std::string &file_name)
         {
             std::string desc;
@@ -139,6 +177,7 @@ namespace ns_compile_and_run
             }
             Json::StyledWriter writer;
             *out_json = writer.write(out_value);
+            RemoveTempFile(file_name);
         }
     };
 }

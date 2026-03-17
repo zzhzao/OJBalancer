@@ -98,6 +98,7 @@ namespace ns_util
             }
             out.write(code.c_str(), code.size());
             out.close();
+            return true;
         }
         // keep 来判断是否保留 \n
         static bool ReadFile(const std::string &target,std::string *content,bool keep = false)
