@@ -1,14 +1,23 @@
 #include<iostream>
 #include"../comm/httplib.h"
+#include<signal.h>
 #include"oj_control.hpp"
 using namespace httplib;
 using namespace ns_control;
+
+static Control *ctrl_ptr = nullptr;
+
+int Recovery(int signo)
+{
+    ctrl_ptr->RecoveryMachine();
+}
 int main()
 {
     // 用户请求的服务路由功能
-
-    Server svr;
     Control ctrl;
+    ctrl_ptr = &ctrl;
+    Server svr;
+    signal(SIGINT,Recovery);
     // 获取题目列表
     svr.Get("/all_questions",[&ctrl](const Request &req, Response &resp){
 

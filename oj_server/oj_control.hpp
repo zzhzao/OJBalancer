@@ -3,6 +3,7 @@
 #include <string>
 #include "oj_model.hpp"
 #include <fstream>
+#include<algorithm>
 #include "../comm/util.hpp"
 #include "../comm/log.hpp"
 #include <vector>
@@ -48,6 +49,14 @@ namespace ns_control
             if (mtx)
                 mtx->lock();
             load--;
+            if (mtx)
+                mtx->unlock();
+        }
+        void ResetLoad()
+        {
+            if (mtx)
+                mtx->lock();
+            load = 0;
             if (mtx)
                 mtx->unlock();
         }
@@ -155,6 +164,7 @@ namespace ns_control
             {
                 if (*iter == which)
                 {
+                    machines[which].ResetLoad();
                     // 离线主机
                     online.erase(iter);
                     offline.push_back(which);
@@ -167,6 +177,12 @@ namespace ns_control
         void OnlineMachine(int id)
         {
             // 我们统一上线
+            mtx.lock();
+            online.insert(online.end(),offline.begin(),offline.end());
+            offline.erase(offline.begin(),offline.end());
+            mtx.unlock();
+
+            LOG(INFO) << "所有的主机上线 "<< "\n";
         }
         // for test
         void ShowMachine()
@@ -206,6 +222,10 @@ namespace ns_control
         }
 
     public:
+        void RecoveryMachine()
+        {
+            load_blance_.OnlineMachine();
+        }
         // html  输出型参数
         bool AllQuestions(std::string *html)
         {
@@ -213,6 +233,9 @@ namespace ns_control
             vector<struct Question> all;
             if (model_.GetAllQuestions(&all))
             {
+                sort(all.begin(),all.end(),[](const struct Question &q1,const struct Question &q1){
+                    return atoi(q1.number.c_str()) < atoi(q2.number.c_str());
+                })
                 // 获取题目信息成功，将所有题目数据构建成网页
                 view_.AllExpandHtml(all, html);
                 LOG(INFO) << "题目列表构建网页成功" << "\n";
@@ -278,7 +301,8 @@ namespace ns_control
                 // 4. 然后发起http请求，得到结果
                 Client cli(m->ip, m->port);
                 m->IncLoad();
-                LOG(INFO) << "选择主机成功，主机id: " << id << "详情；" << m->ip << ": " << m->port << "\n";
+                LOG(INFO) << "选择主机成功，主机id: " << id << "详情；" << m->ip << ": " << m->port << "当前主机的负载是"<< m->Load()<<"\n";
+
                 if (auto res = cli.Post("/compile_and_run", compile_string, "application/json;charset=utf-8"))
                 {
                     // 5. 将结果赋值给out_json

@@ -8,6 +8,8 @@
 #include <sys/time.h>
 #include <atomic>
 #include<fstream>
+#include<boost/algorithm/string.hpp>
+#include<vector>
 const std::string temp_path = "./temp/";
 
 namespace ns_util
@@ -121,5 +123,12 @@ namespace ns_util
             return true;
         }
     };
-
+    class StringUtil{
+        public:
+            // target 是输出型参数，保存切分完毕的结果
+            static void SplitString(const std::string &str,std::vector<std::string> *target,std::string sep)
+            {
+                boost::split(*target,str,boost::is_any_of(sep),boost::token_compress_on);
+            }
+    };
 };
