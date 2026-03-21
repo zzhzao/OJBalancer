@@ -1,12 +1,15 @@
 #pragma once
-#include<iostream>
-#include<string>
-#include"oj_model.hpp"
-#include"../comm/util.hpp"
-#include"../comm/log.hpp"
-#include<vector>
-#include"oj_view.hpp"
-#include<mutex>
+#include <iostream>
+#include <string>
+#include "oj_model.hpp"
+#include <fstream>
+#include "../comm/util.hpp"
+#include "../comm/log.hpp"
+#include <vector>
+#include "oj_view.hpp"
+#include <mutex>
+#include <jsoncpp/json/json.h>
+#include "../comm/httplib.h"
 namespace ns_control
 {
     using namespace std;
@@ -14,18 +17,51 @@ namespace ns_control
     using namespace ns_log;
     using namespace ns_model;
     using namespace ns_view;
+    using namespace httplib;
     // 提供服务的主机
     class Machine
     {
     public:
         std::string ip;
         int port;
-        uint64_t load;  // 用于计数
+        uint64_t load; // 用于计数
         std::mutex *mtx;
+
     public:
-        Machine():ip(""),port(0),load(0),mtx(nullptr)
-        {}
-        ~Machine(){}
+        Machine() : ip(""), port(0), load(0), mtx(nullptr)
+        {
+        }
+        ~Machine() {}
+
+    public:
+        // 更新负载
+        void IncLoad()
+        {
+            if (mtx)
+                mtx->lock();
+            load++;
+            if (mtx)
+                mtx->unlock();
+        }
+        void DecLoad()
+        {
+            if (mtx)
+                mtx->lock();
+            load--;
+            if (mtx)
+                mtx->unlock();
+        }
+        // 获取主机负载
+        uint64_t Load()
+        {
+            uint64_t _load = 0;
+            if (mtx)
+                mtx->lock();
+            _load = load;
+            if (mtx)
+                mtx->unlock();
+            return _load;
+        }
     };
 
     const std::string service_machine = "./conf/service_machine.conf";
@@ -34,65 +70,150 @@ namespace ns_control
     class LoadBlance
     {
     private:
-    // 可以给我们提供编译服务的所有主机
-    // 每一台主机都有自己的下标，来充当当前主机的id
-        std::vector<Machine> machines;  
+        // 可以给我们提供编译服务的所有主机
+        // 每一台主机都有自己的下标，来充当当前主机的id
+        std::vector<Machine> machines;
         std::vector<int> online;  // 所有在线的主机id
-        std::vector<int> offline;  //  所有离线的主机id
+        std::vector<int> offline; //  所有离线的主机id
+        // 可能有多个执行流访问 machines 要做保护
+        std::mutex mtx;
 
     public:
         LoadBlance()
         {
             assert(LoadConf(service_machine));
+            LOG(INFO) << "加载" << service_machine << "成功" << "\n";
         }
         ~LoadBlance()
-        {}
-        bool LoadConf(const std::string &machine_list)
         {
-
         }
-        bool SmartChoice()
+        bool LoadConf(const std::string &machine_conf)
         {
-
+            std::ifstream in(machine_conf);
+            if (!in.is_open())
+            {
+                LOG(FATAL) << "加载： " << machine_conf << "失败" << "\n";
+                return false;
+            }
+            std::string line;
+            while (std::getline(in, line))
+            {
+                std::vector<std::string> tokens;
+                StringUtil::SplitString(line, &tokens, ":");
+                if (tokens.size() != 2)
+                {
+                    LOG(WARNING) << "切分" << line << "失败" << "\n";
+                    continue;
+                }
+                Machine m;
+                m.ip = tokens[0];
+                m.port = atoi(tokens[1].c_str());
+                m.load = 0;
+                m.mtx = new std::mutex();
+                online.push_back(machines.size());
+                machines.push_back(m);
+            }
+            in.close();
+            return true;
         }
-        void OfflineMachine()
+        // id m 输出型参数
+        bool SmartChoice(int *id, Machine **m)
         {
+            // 1. 使用选择好的主机(更新该主机的负载)
+            // 2. 我们需要可能离线该主机
+            mtx.lock();
 
+            int online_num = online.size();
+            if (online_num == 0)
+            {
+                mtx.unlock();
+                LOG(FATAL) << "所有的后端编译主机已经全部离线，请运维的同事尽快查看" << "\n";
+                return false;
+            }
+            // 通过遍历的方式，找到负载最小的主机
+            *id = online[0];
+            uint64_t min_load = machines[online[0]].Load();
+            for (int i = 1; i < online_num; i++)
+            {
+                uint64_t curr_load = machines[online[i]].Load();
+                if (min_load > curr_load)
+                {
+                    min_load = curr_load;
+                    *id = online[i];
+                    *m = &machines[online[i]];
+                }
+            }
+            mtx.unlock();
+            return true;
         }
-        void OnlineMachine()
+        void OfflineMachine(int which)
         {
-            
+            mtx.lock();
+
+            for (auto iter = online.begin(); iter != online.end(); iter++)
+            {
+                if (*iter == which)
+                {
+                    // 离线主机
+                    online.erase(iter);
+                    offline.push_back(*iter);
+                    break; // 因为break的存在，我们暂时不考虑迭代器失效的问题
+                }
+            }
+
+            mtx.unlock();
+        }
+        void OnlineMachine(int id)
+        {
+            // 我们统一上线
+        }
+        // for test
+        void ShowMachine()
+        {
+            mtx.lock();
+            std::cout << "当前在线主机列表：";
+            for (auto &id : online)
+            {
+                std::cout << id << " ";
+            }
+            std::cout << std::endl;
+            std::cout << "当前离线主机列表：";
+            for (auto &id : offline)
+            {
+                std::cout << id << " ";
+            }
+            std::cout << std::endl;
+            mtx.unlock();
         }
     };
 
+    ///////////////////////////////////////////////
 
-
-
-
-///////////////////////////////////////////////
-
-
-    //核心业务
+    // 核心业务
     class Control
     {
     private:
-        Model model_;  // 提供后台数据
-        View view_;   // 提供网页渲染
+        Model model_;            // 提供后台数据
+        View view_;              // 提供网页渲染
+        LoadBlance load_blance_; // 核心负载均衡器
     public:
         Control()
-        {}
+        {
+        }
         ~Control()
-        {}
+        {
+        }
+
     public:
-    // html  输出型参数
+        // html  输出型参数
         bool AllQuestions(std::string *html)
         {
             int ret = true;
             vector<struct Question> all;
-            if(model_.GetAllQuestions(&all))
+            if (model_.GetAllQuestions(&all))
             {
                 // 获取题目信息成功，将所有题目数据构建成网页
-                view_.AllExpandHtml(all,html);
+                view_.AllExpandHtml(all, html);
             }
             else
             {
@@ -101,14 +222,14 @@ namespace ns_control
             }
             return ret;
         }
-        bool Question(const string &string,std::string *html)
+        bool Question(const string &string, std::string *html)
         {
             bool ret = true;
             struct Question q;
-            if(model_.GetOneQuestion(q.number,&q))
+            if (model_.GetOneQuestion(q.number, &q))
             {
                 // 通过指定题目 构建网页
-                view_.OneExpandHtml(q,html);
+                view_.OneExpandHtml(q, html);
             }
             else
             {
@@ -117,17 +238,62 @@ namespace ns_control
             }
             return ret;
         }
-        void Judge(const std::string in_json,std::string *out_json)
+        void Judge(const std::string &number, const std::string in_json, std::string *out_json)
         {
             // in_json   id   code   input
-            // 1.对in_json反序列化  得到id 代码 input
+            // 根据题目编号，拿到题目细节
+            struct Question q;
+            model_.GetOneQuestion(number, &q);
+            // 1.对in_json反序列化  得到 代码 input
+            Json::Reader reader;
+            Json::Value in_value;
+            reader.parse(in_json, in_value);
 
             // 2. 拼接用户代码和测试用例代码
+            std::string code = in_value["code"].asString();
+            Json::Value compile_value;
+            compile_value["input"] = in_value["input"].asString();
+            compile_value["code"] = code + q.tail;
+            compile_value["cpu_limit"] = q.cpu_limit;
+            compile_value["mem_limit"] = q.mem_limit;
 
+            Json::FastWriter writer;
+            std::string compile_string = writer.write(compile_value);
             // 3. 选择负载最低的主机，
-            // 4. 然后发起http请求，得到结果
 
-            // 5. 将结果赋值给out_json
+            while (true)
+            {
+                int id = 0;
+                Machine *m = nullptr;
+                if (!load_blance_.SmartChoice(&id, &m))
+                {
+                    break;
+                }
+                LOG(INFO) << "选择主机成功，主机id: " << id << "详情；" << m->ip << ": " << m->port << "\n";
+                // 4. 然后发起http请求，得到结果
+                Client cli(m->ip, m->port);
+                m->IncLoad();
+                if (auto res = cli.Post("/compile_and_run", compile_string, "application/json;charset=utf-8"))
+                {
+                    // 5. 将结果赋值给out_json
+                    if (res->status == 200)
+                    {
+                        *out_json = res->body;
+                        m->DecLoad();
+                        LOG(INFO) << "请求编译运行服务成功..." << "\n";
+                        break;
+                    }
+                    m->DecLoad();
+                }
+                else
+                {
+                    // 请求失败
+                    LOG(ERROR) << "当前请求的主机id: " << id << "详情；" << m->ip << ": " << m->port << "可能已经离线" << "\n";
+                    m->DecLoad();
+                    load_blance_.OfflineMachine(id);
+                    load_blance_.ShowMachine();
+                }
+            }
         }
     };
 }
