@@ -132,6 +132,7 @@ namespace ns_control
             }
             // 通过遍历的方式，找到负载最小的主机
             *id = online[0];
+            *m = &machines[online[0]];
             uint64_t min_load = machines[online[0]].Load();
             for (int i = 1; i < online_num; i++)
             {
@@ -156,7 +157,7 @@ namespace ns_control
                 {
                     // 离线主机
                     online.erase(iter);
-                    offline.push_back(*iter);
+                    offline.push_back(which);
                     break; // 因为break的存在，我们暂时不考虑迭代器失效的问题
                 }
             }
@@ -214,6 +215,7 @@ namespace ns_control
             {
                 // 获取题目信息成功，将所有题目数据构建成网页
                 view_.AllExpandHtml(all, html);
+                LOG(INFO) << "题目列表构建网页成功" << "\n";
             }
             else
             {
@@ -222,18 +224,21 @@ namespace ns_control
             }
             return ret;
         }
-        bool Question(const string &string, std::string *html)
+        bool Question(const std::string &number, std::string *html)
         {
+            std::cout << "指定题目构建,number: "<< number << std::endl;
             bool ret = true;
             struct Question q;
-            if (model_.GetOneQuestion(q.number, &q))
+            if (model_.GetOneQuestion(number, &q))
             {
                 // 通过指定题目 构建网页
                 view_.OneExpandHtml(q, html);
+                LOG(INFO) << "指定题目构建网页成功" << "\n";
             }
             else
             {
                 *html = "指定题目：" + q.number + "不存在！";
+                LOG(ERROR) << "指定题目构建网页失败" << "\n";
                 ret = false;
             }
             return ret;
@@ -269,10 +274,11 @@ namespace ns_control
                 {
                     break;
                 }
-                LOG(INFO) << "选择主机成功，主机id: " << id << "详情；" << m->ip << ": " << m->port << "\n";
+
                 // 4. 然后发起http请求，得到结果
                 Client cli(m->ip, m->port);
                 m->IncLoad();
+                LOG(INFO) << "选择主机成功，主机id: " << id << "详情；" << m->ip << ": " << m->port << "\n";
                 if (auto res = cli.Post("/compile_and_run", compile_string, "application/json;charset=utf-8"))
                 {
                     // 5. 将结果赋值给out_json
